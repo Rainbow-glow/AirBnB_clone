@@ -14,7 +14,7 @@ from tests.test_models.test_base_model import JSON_FILE_PATH
 import models
 from short_cut import shortcut 
 
-instance = shortcut`()
+instance = shortcut()
 
 
 known_models = [
