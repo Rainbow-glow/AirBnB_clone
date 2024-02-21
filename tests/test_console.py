@@ -12,9 +12,9 @@ from unittest.mock import patch
 from console import HBNBCommand as hbnb
 from tests.test_models.test_base_model import JSON_FILE_PATH
 import models
-from lazy_methods import LazyMethods
+from short_cut import shortcut 
 
-instance = LazyMethods()
+instance = shortcut`()
 
 
 known_models = [
