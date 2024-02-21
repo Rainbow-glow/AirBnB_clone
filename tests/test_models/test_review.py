@@ -1,52 +1,78 @@
 #!/usr/bin/python3
-"""Unittest module for the Review Class."""
 
-import unittest
-from datetime import datetime
-import time
-from models.review import Review
-import re
-import json
-from models.engine.file_storage import FileStorage
+"""This module tests the Review model."""
+
 import os
-from models import storage
+import unittest
+from models.review import Review
 from models.base_model import BaseModel
+from tests.test_models.test_base_model import JSON_FILE_PATH
 
 
-class TestReview(unittest.TestCase):
+class TestReviewModel(unittest.TestCase):
+    """Tests the Review model."""
 
-    """Test Cases for the Review class."""
+    __expected_attributes = {
+        "place_id": "",
+        "user_id": "",
+        "text": "",
+    }
 
-    def setUp(self):
-        """Sets up test methods."""
-        pass
+    @classmethod
+    def setUpClass(cls) -> None:
+        try:
+            os.remove(JSON_FILE_PATH)
+        except FileNotFoundError:
+            pass
 
-    def tearDown(self):
-        """Tears down test methods."""
-        self.resetStorage()
-        pass
+    @classmethod
+    def tearDownClass(cls) -> None:
+        try:
+            os.remove(JSON_FILE_PATH)
+        except FileNotFoundError:
+            pass
 
-    def resetStorage(self):
-        """Resets FileStorage data."""
-        FileStorage._FileStorage__objects = {}
-        if os.path.isfile(FileStorage._FileStorage__file_path):
-            os.remove(FileStorage._FileStorage__file_path)
+    def setUp(self) -> None:
+        self.review1 = Review()
+        self.review2 = Review()
 
-    def test_8_instantiation(self):
-        """Tests instantiation of Review class."""
+    def test_presence_of_class_attributes(self) -> None:
+        """Tests the presence of the required class attributes."""
 
-        b = Review()
-        self.assertEqual(str(type(b)), "<class 'models.review.Review'>")
-        self.assertIsInstance(b, Review)
-        self.assertTrue(issubclass(type(b), BaseModel))
+        for attribute in self.__expected_attributes:
+            self.assertTrue(hasattr(self.review1, attribute))
 
-    def test_8_attributes(self):
-        """Tests the attributes of Review class."""
-        attributes = storage.attributes()["Review"]
-        o = Review()
-        for k, v in attributes.items():
-            self.assertTrue(hasattr(o, k))
-            self.assertEqual(type(getattr(o, k, None)), v)
+    def test_save(self) -> None:
+        """Tests the inherited `save()` method."""
+        Review().save()
 
-if __name__ == "__main__":
-    unittest.main()
+        self.assertTrue(os.path.exists(JSON_FILE_PATH))
+
+    def test_unique_objects(self) -> None:
+        """Tests to ensure no two instances are the same."""
+        self.assertNotEqual(self.review1, self.review2)
+
+    def test_default_class_attribute_values(self) -> None:
+        """Tests the default values for the public class attributes."""
+        for attribute, value in self.__expected_attributes.items():
+            self.assertTrue(getattr(self.review1, attribute) == value)
+            self.assertTrue(getattr(self.review2, attribute) == value)
+
+    def test_instance_of_object(self) -> None:
+        """Tests the classes the Review model is an instance of."""
+        self.assertIsInstance(self.review2, Review)
+        self.assertIsInstance(self.review2, BaseModel)
+
+    def test_subclass_of(self) -> None:
+        """Tests to ensure Review model objects are sub classes of BaseModel"""
+        self.assertTrue(issubclass(self.review1.__class__, BaseModel))
+        self.assertTrue(issubclass(self.review2.__class__, BaseModel))
+        self.assertTrue(issubclass(Review, BaseModel))
+
+    def test_nonexistent_attribute(self) -> None:
+        """Tests for non-existent attribute."""
+        self.assertFalse(hasattr(self.review1, "node_string"))
+
+    def test_nonexistent_method(self) -> None:
+        """Tests for non-existent method."""
+        self.assertFalse(hasattr(self.review1, "op_review()"))

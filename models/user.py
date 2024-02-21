@@ -1,10 +1,13 @@
 #!/usr/bin/python3
-"""Module for User class."""
+
+"""This model define the User model."""
+
 from models.base_model import BaseModel
 
 
 class User(BaseModel):
-    """Class representing a User."""
+    """Defines the User model."""
+
     email = ""
     password = ""
     first_name = ""

@@ -1,209 +1,495 @@
 #!/usr/bin/python3
-"""Defines the HBnB console."""
-import cmd
+
+"""Implements the command interpreter."""
+
 import re
-from shlex import split
-from models.engine import storage
-from models.base_model import BaseModel
+import os
+import cmd
+import shlex
+from ast import literal_eval
+from models import storage
 from models.user import User
-from models.state import State
 from models.city import City
 from models.place import Place
-from models.amenity import Amenity
+from models.state import State
 from models.review import Review
-
-
-def parse(arg):
-    curly_braces = re.search(r"\{(.*?)\}", arg)
-    brackets = re.search(r"\[(.*?)\]", arg)
-    if curly_braces is None:
-        if brackets is None:
-            return [i.strip(",") for i in split(arg)]
-        else:
-            lexer = split(arg[:brackets.span()[0]])
-            retl = [i.strip(",") for i in lexer]
-            retl.append(brackets.group())
-            return retl
-    else:
-        lexer = split(arg[:curly_braces.span()[0]])
-        retl = [i.strip(",") for i in lexer]
-        retl.append(curly_braces.group())
-        return retl
+from models.amenity import Amenity
+from models.base_model import BaseModel
 
 
 class HBNBCommand(cmd.Cmd):
-    """Defines the HolbertonBnB command interpreter.
-
-    Attributes:
-        prompt (str): The command prompt.
-    """
+    """Defines the command interpreter."""
 
     prompt = "(hbnb) "
-    __classes = {
-        "BaseModel",
-        "User",
-        "State",
-        "City",
-        "Place",
-        "Amenity",
-        "Review"
+    __models = {
+        "BaseModel": BaseModel,
+        "User": User,
+        "State": State,
+        "City": City,
+        "Amenity": Amenity,
+        "Place": Place,
+        "Review": Review,
     }
 
-    def emptyline(self):
-        """Do nothing upon receiving an empty line."""
-        pass
+    def emptyline(self) -> None:
+        """Ensures empty command lines are handled properly."""
 
-    def default(self, arg):
-        """Default behavior for cmd module when input is invalid"""
-        argdict = {
-            "all": self.do_all,
-            "show": self.do_show,
-            "destroy": self.do_destroy,
-            "count": self.do_count,
-            "update": self.do_update
-        }
-        match = re.search(r"\.", arg)
-        if match is not None:
-            argl = [arg[:match.span()[0]], arg[match.span()[1]:]]
-            match = re.search(r"\((.*?)\)", argl[1])
-            if match is not None:
-                command = [argl[1][:match.span()[0]], match.group()[1:-1]]
-                if command[0] in argdict.keys():
-                    call = "{} {}".format(argl[0], command[1])
-                    return argdict[command[0]](call)
-        print("*** Unknown syntax: {}".format(arg))
-        return False
+    def default(self, line: str) -> None:
+        """Handles unknown commands and model-based commands.
 
-    def do_quit(self, arg):
-        """Quit command to exit the program."""
+        It looks out for the model-based command syntaxes (e.g. User.all()),
+        then calls the appropriate method to handle it.
+
+        If the command `line` does not match a model-based syntax, then it is
+        ruled out an unknown command.
+
+        Args:
+            line (str): The command line received.
+        """
+        if re.match(r"(\w+)\.(\w+)\((.*)\)", line):
+            line = self.__handle_model_based_cmd(line)
+            self.onecmd(line.strip())
+        else:
+            print(f"*** Unknown syntax: {line.strip()}")
+
+    def __handle_model_based_cmd(self, line: str) -> str:
+        """Handles the model-based command syntax.
+
+        Args:
+            line (str): The command line received.
+
+        Returns:
+            str: The updated line for further processing.
+        """
+        get_regex = list(re.match(r"(\w+)\.(\w+)\((.*)\)", line).groups())
+
+        # get rid of empty lines in the returned pattern
+        if get_regex[-1] == "":
+            get_regex.pop()
+
+        if get_regex:
+            if len(get_regex) >= 2:
+                class_name, user_cmd = get_regex[0], get_regex[1]
+                line = f"{user_cmd} {class_name}"
+
+                try:
+                    obj_dict = re.findall(r"\{.*?\}", get_regex[2])[0]
+
+                    if user_cmd == "update" and obj_dict:
+
+                        obj_dict = literal_eval(obj_dict)
+                        instance_id = shlex.split(get_regex[2])[0]
+                        instance_id = instance_id.replace(",", "")
+
+                        line += f" {instance_id} {obj_dict}"
+                        return line
+                except IndexError:
+                    pass
+
+                # try and preserve a list if it exists
+                if len(get_regex) >= 3:
+                    list_data = re.findall(r"\[.*\]", get_regex[2])
+                    if list_data:
+                        get_regex[2] = get_regex[2].replace(
+                            str(list_data[0]), ""
+                        )
+
+                try:
+                    extra_args = shlex.split(get_regex[2])
+                    line += " "
+                    line += " ".join(extra_args).replace(",", "")
+                    line += f" {list_data or ''}"
+                except (ValueError, IndexError):
+                    pass
+
+        return line.strip()
+
+    def precmd(self, line) -> str:
+        """Modifies the command line received before it is interpreted.
+
+        The job of this method is two folds
+
+            - It performs a mini case-insensitivity for the 'EOF' string
+            when received on the command line.
+            - It aids in adding new lines before printing the help messages
+            for commands.
+
+        Args:
+            line (str): The command line to modify
+
+        Returns:
+            str: The modified command if touched, else it returned as received.
+        """
+        if line and line == "EOF":
+            return line.lower()
+
+        try:
+            if (
+                line
+                and shlex.split(line)[0] in ["help", "?"]
+                and len(line.split()) > 1
+            ):
+                print()
+        except (ValueError, IndexError):
+            self.onecmd(f"{line}")
+            return ""
+
+        return line
+
+    def postcmd(self, stop: bool, line: str) -> bool:
+        """Adds a newline after the help message for commands.
+
+        Args:
+            stop (bool): Determines whether the console should keep running.
+            line (str): The command line received.
+
+        Returns:
+            bool: True if the console should exit, else False.
+        """
+        if (
+            line
+            and shlex.split(line)[0] in ["help", "?"]
+            and len(line.split()) > 1
+        ):
+            print()
+
+        return stop
+
+    def completedefault(self, *text) -> "list[str]":
+        """Performs the name completion for model names.
+
+        Returns:
+            list[str]: The list of model names.
+        """
+        if not text:
+            completions = list(self.__models.keys())[:]
+        else:
+            completions = [
+                model for model in self.__models if model.startswith(text[0])
+            ]
+
+        return completions
+
+    def __is_valid_args(
+        self, line, check_class=False, check_id=False, check_attributes=False
+    ) -> bool:
+        """Performs simple checks on the line received from the command line.
+
+        This method checks for the presence of the class and id arguments in
+        the `line`. Also, as an extra step, it checks to see if the class
+        name in the `line` is known. Alternatively, it can check for the
+        presence of attribute name and value arguments in the `line`.
+
+        Args:
+            line (str): The string received from the command line.
+
+            check_class (bool, optional): Determines whether to check the
+            presence and validity of a class name. Defaults to False.
+
+            check_id (bool, optional): Determines whether to check the presence
+            of the `id` argument. Defaults to False.
+
+            check_attributes (bool): Determines whether to check the presence
+            of the attribute name and attribute value arguments.
+            Defaults to False.
+
+        Returns:
+            bool: `True` if the line is okay and contains the required
+            arguments needed for the command, `False` otherwise.
+        """
+        try:
+            args = shlex.split(line)
+        except ValueError:
+            args = ""
+
+        def __is_valid_args_helper(args: str) -> bool:
+            """A simple helper function for `__is_valid_args()`."""
+            if check_class:
+                if not args:
+                    print("** class name missing **")
+                    return False
+
+                if args[0] not in self.__models:
+                    print("** class doesn't exist **")
+                    return False
+
+            if check_id:
+                if len(args) == 1:
+                    print("** instance id missing **")
+                    return False
+
+            if check_attributes:
+                if len(re.findall(r"\{[^}]*$", line)) != 0 or len(args) < 3:
+                    print("** attribute name missing **")
+                    return False
+
+                if len(args) < 4:
+                    print("** value missing **")
+                    return False
+
+            return True
+
+        return __is_valid_args_helper(args)
+
+    @staticmethod
+    def __search_instance(
+        instance_class: str, instance_id: str
+    ) -> "object | None":
+        """Searches for an instance by it's id and class name.
+
+        Args:
+            instance_class (str): The name of instance's class.
+            instance_id (str): The ID of the instance to search for.
+
+        Returns:
+            object | None: The instance (object) of the searched `instance_id`
+            and `instance_class` if found, otherwise None.
+        """
+        all_objects = storage.all()
+
+        for obj in all_objects.values():
+            if (
+                obj.id == instance_id
+                and obj.__class__.__name__ == instance_class
+            ):
+                return obj
+
+        return None
+
+    @staticmethod
+    def do_quit(_) -> bool:
+        """Quit command to exit the console."""
         return True
 
-    def do_EOF(self, arg):
-        """EOF signal to exit the program."""
-        print("")
+    @staticmethod
+    def do_eof(_) -> bool:
+        """Exits the console gracefully."""
+        print()
         return True
 
-    def do_create(self, arg):
-        """Usage: create <class>
-        Create a new class instance and print its id.
+    def do_create(self, class_name: str) -> None:
+        """Creates a new instance of a model and saves it to a JSON file.
+
+        Args:
+            class_name (str): The expected class name.
         """
-        argl = parse(arg)
-        if len(argl) == 0:
-            print("** class name missing **")
-        elif argl[0] not in HBNBCommand.__classes:
-            print("** class doesn't exist **")
-        else:
-            print(eval(argl[0])().id)
-            storage.save()
+        if not self.__is_valid_args(class_name, check_class=True):
+            return
 
-    def do_show(self, arg):
-        """Usage: show <class> <id> or <class>.show(<id>)
-        Display the string representation of a class instance of a given id.
+        obj = self.__models[shlex.split(class_name)[0]]()
+        obj.save()
+        print(obj.id)
+
+    @staticmethod
+    def help_create() -> None:
+        """Prints the help info for the `create` command."""
+        print(
+            "Creates an  instance of a model and saves it to a JSON file.",
+            "Usage:",
+            "\tOption 1: create <class name>",
+            "\tOption 2: <class name>.create()",
+            sep="\n",
+        )
+
+    def do_show(self, line) -> None:
+        """Prints the string representation of an instance based on the class
+        name and id.
+
+        Args:
+            line (str): The command line argument received.
         """
-        argl = parse(arg)
-        objdict = storage.all()
-        if len(argl) == 0:
-            print("** class name missing **")
-        elif argl[0] not in HBNBCommand.__classes:
-            print("** class doesn't exist **")
-        elif len(argl) == 1:
-            print("** instance id missing **")
-        elif "{}.{}".format(argl[0], argl[1]) not in objdict:
-            print("** no instance found **")
-        else:
-            print(objdict["{}.{}".format(argl[0], argl[1])])
+        if not self.__is_valid_args(line, check_class=True, check_id=True):
+            return
 
-    def do_destroy(self, arg):
-        """Usage: destroy <class> <id> or <class>.destroy(<id>)
-        Delete a class instance of a given id."""
-        argl = parse(arg)
-        objdict = storage.all()
-        if len(argl) == 0:
-            print("** class name missing **")
-        elif argl[0] not in HBNBCommand.__classes:
-            print("** class doesn't exist **")
-        elif len(argl) == 1:
-            print("** instance id missing **")
-        elif "{}.{}".format(argl[0], argl[1]) not in objdict.keys():
-            print("** no instance found **")
+        instance_class = instance_id = ""
+
+        try:
+            instance_class, instance_id = shlex.split(line)
+        except ValueError:
+            print("** too many arguments **")
+            return
+
+        instance = self.__search_instance(instance_class, instance_id)
+        if instance:
+            print(instance)
         else:
-            del objdict["{}.{}".format(argl[0], argl[1])]
+            print("** no instance found **")
+
+    @staticmethod
+    def help_show() -> None:
+        """Prints the help info for the `show` command."""
+        print(
+            "Prints the string representation of an instance based on the "
+            "class name and id",
+            "Usage:",
+            "\tOption 1: show <class name> <id>",
+            "\tOption 2: <class name>.show(<id>)",
+            sep="\n",
+        )
+
+    def do_destroy(self, line) -> None:
+        """Deletes an instance base on the class name and id
+
+        Args:
+            line (str): The command line argument received.
+        """
+        instance_class = instance_id = ""
+
+        if not self.__is_valid_args(line, check_class=True, check_id=True):
+            return
+
+        instance_class, instance_id = shlex.split(line)
+
+        instance = self.__search_instance(instance_class, instance_id)
+        if instance:
+            objects = storage.all()
+
+            # delete the current instance
+            del objects[f"{instance.__class__.__name__}.{instance.id}"]
+
+            # save the updated objects dictionary
             storage.save()
-
-    def do_all(self, arg):
-        """Usage: all or all <class> or <class>.all()
-        Display string representations of all instances of a given class.
-        If no class is specified, displays all instantiated objects."""
-        argl = parse(arg)
-        if len(argl) > 0 and argl[0] not in HBNBCommand.__classes:
-            print("** class doesn't exist **")
         else:
-            objl = []
-            for obj in storage.all().values():
-                if len(argl) > 0 and argl[0] == obj.__class__.__name__:
-                    objl.append(obj.__str__())
-                elif len(argl) == 0:
-                    objl.append(obj.__str__())
-            print(objl)
-
-    def do_count(self, arg):
-        """Usage: count <class> or <class>.count()
-        Retrieve the number of instances of a given class."""
-        argl = parse(arg)
-        count = 0
-        for obj in storage.all().values():
-            if argl[0] == obj.__class__.__name__:
-                count += 1
-        print(count)
-
-    def do_update(self, arg):
-        """Usage: update <class> <id> <attribute_name> <attribute_value> or
-       <class>.update(<id>, <attribute_name>, <attribute_value>) or
-       <class>.update(<id>, <dictionary>)
-        Update a class instance of a given id by adding or updating
-        a given attribute key/value pair or dictionary."""
-        argl = parse(arg)
-        objdict = storage.all()
-
-        if len(argl) == 0:
-            print("** class name missing **")
-            return False
-        if argl[0] not in HBNBCommand.__classes:
-            print("** class doesn't exist **")
-            return False
-        if len(argl) == 1:
-            print("** instance id missing **")
-            return False
-        if "{}.{}".format(argl[0], argl[1]) not in objdict.keys():
             print("** no instance found **")
-            return False
-        if len(argl) == 2:
-            print("** attribute name missing **")
-            return False
-        if len(argl) == 3:
+
+    @staticmethod
+    def help_destroy() -> None:
+        """Prints the help info for the `show` command."""
+        print(
+            "Deletes an instance based on the class name and id",
+            "Usage:",
+            "\tOption 1: destroy <class name> <id>",
+            "\tOption 2: <class name>.destroy(<id>)",
+            sep="\n",
+        )
+
+    def do_all(self, model_name: str) -> None:
+        """Prints the string representation for all or some model instances."""
+        if model_name and shlex.split(model_name)[0] not in self.__models:
+            print("** class doesn't exist **")
+            return
+
+        objects = storage.all()
+        instances = []
+
+        # print the instances for a specific model, if provided
+        if model_name:
+            for obj in objects.values():
+                if obj.__class__.__name__ == model_name:
+                    instances.append(str(obj))
+        else:
+            # print all the instances available
+            for obj in objects.values():
+                instances.append(str(obj))
+
+        print(instances)
+
+    @staticmethod
+    def help_all() -> None:
+        """Prints the help info for the `all` command."""
+        print(
+            "Prints the string representation for all or a specified model's "
+            "instances.",
+            "Usage:",
+            "\tOption 1: all [<class name>]",
+            "\tOption 2: <class name>.all()",
+            sep="\n",
+        )
+
+    def do_update(self, arg: str) -> None:
+        """Updates an instance based on the class name and id by adding or
+        updating attributes.
+
+        After a successful update, it is saved to a JSON file. In the event no
+        instances are found for the provided class name and id, nothing is done
+        and an error is printed on the screen.
+
+        Args:
+            arg (str): The command line argument.
+        """
+        if not self.__is_valid_args(
+            arg, check_class=True, check_id=True, check_attributes=True
+        ):
+            return
+
+        # grab the four expected arguments, all other arguments are ignored
+        instance_class, instance_id, attr_name = shlex.split(arg)[:3]
+
+        instance = self.__search_instance(instance_class, instance_id)
+
+        if instance:
             try:
-                type(eval(argl[2])) != dict
-            except NameError:
-                print("** value missing **")
-                return False
+                attr_val = re.findall(r"\{.*\}", arg)[0]
+            except IndexError:
+                attr_val = shlex.split(arg)[3]
 
-        if len(argl) == 4:
-            obj = objdict["{}.{}".format(argl[0], argl[1])]
-            if argl[2] in obj.__class__.__dict__.keys():
-                valtype = type(obj.__class__.__dict__[argl[2]])
-                obj.__dict__[argl[2]] = valtype(argl[3])
+            try:
+                # evaluating the value based on its default builtin type
+                attr_val = literal_eval(attr_val)
+            except (ValueError, SyntaxError):
+                # well, looks like we'd have to save it as it was received
+                instance.__dict__[attr_name] = attr_val
             else:
-                obj.__dict__[argl[2]] = argl[3]
-        elif type(eval(argl[2])) == dict:
-            obj = objdict["{}.{}".format(argl[0], argl[1])]
-            for k, v in eval(argl[2]).items():
-                if (k in obj.__class__.__dict__.keys() and
-                        type(obj.__class__.__dict__[k]) in {str, int, float}):
-                    valtype = type(obj.__class__.__dict__[k])
-                    obj.__dict__[k] = valtype(v)
+                if isinstance(attr_val, dict):
+                    instance.__dict__.update(attr_val)
                 else:
-                    obj.__dict__[k] = v
-        storage.save()
+                    instance.__dict__[attr_name] = attr_val
+
+            instance.save()
+        else:
+            print("** no instance found **")
+
+    @staticmethod
+    def help_update() -> None:
+        """Prints the help info for the `update` command."""
+        print(
+            "Updates an instance based on the class name and id by adding or "
+            "updating attributes.",
+            "Usage:",
+            "\tOption 1: "
+            'update <class name> <id> <attribute name> "<attribute value>"',
+            "\tOption 2: "
+            "<class name>.update(<id>, <attribute name>, <attribute value>)",
+            "\tOption 3: "
+            "<class name>.update(<id>, <dictionary representation>)",
+            sep="\n",
+        )
+
+    def do_count(self, model_name) -> None:
+        """Prints the number of instances for a particular model."""
+        if not self.__is_valid_args(model_name, check_class=True):
+            return
+
+        objects = storage.all()
+        instance_count = 0
+
+        for obj in objects.values():
+            if obj.__class__.__name__ == model_name:
+                instance_count += 1
+
+        print(instance_count)
+
+    @staticmethod
+    def help_count() -> None:
+        """Prints the help info for the `count` command."""
+        print(
+            "Prints the number of instances for a particular model.",
+            "Usage:",
+            "\tOption 1: count <class name>",
+            "\tOption 2: <class name>.count()",
+            sep="\n",
+        )
+
+    @staticmethod
+    def do_clear(_) -> None:
+        """Clears the console screen."""
+        os.system("clear")
+
+    @staticmethod
+    def do_shell(line) -> None:
+        """Invokes the builtin shell program to execute a command."""
+        if line:
+            os.system(line)
 
 
 if __name__ == "__main__":
