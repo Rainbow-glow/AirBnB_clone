@@ -6,6 +6,7 @@
 !*.css
 !*.js
 !*png
+!*__pycache__
 !*.jpg
 !.gitignore
 !README.md
